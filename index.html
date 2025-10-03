@@ -175,36 +175,33 @@
 
     // ================== PACKET HANDLER ==================
     function handlePacket(event) {
-      const data = new Uint8Array(event.target.value.buffer);
-      const [ctrl, d1, d0, dec] = data;
+  const data = new Uint8Array(event.target.value.buffer);
+  const text = new TextDecoder().decode(data);
 
-      logPacket("Received", ctrl, d1, d0, dec);
+  // 1. Try JSON decode
+  try {
+    const obj = JSON.parse(text);
 
-      // ===== Update Display =====
-      switch (ctrl) {
-        case 161:
-          document.getElementById("rotation").innerText = `${(d1<<8)|d0}°`;
-          break;
-        case 162:
-          document.getElementById("angle").innerText = `${d1}°`;
-          break;
-        case 163:
-          document.getElementById("speeds").innerText = `${d1} / ${d0} mm/s`;
-          break;
-        case 164:
-          document.getElementById("distance").innerText = `${(d1<<8)|d0} mm`;
-          break;
-        case 177:
-          const DATA = (d1<<8)|d0;
-          const s1 = (DATA >> 6) & 0b111;
-          const s2 = (DATA >> 3) & 0b111;
-          const s3 = (DATA >> 0) & 0b111;
-          updateSensor("s1", s1);
-          updateSensor("s2", s2);
-          updateSensor("s3", s3);
-          break;
-      }
-    }
+    updateSensor("s1", obj.S1);
+    updateSensor("s2", obj.S2);
+    updateSensor("s3", obj.S3);
+    document.getElementById("angle").innerText = obj.Angle + "°";
+    document.getElementById("rotation").innerText = obj.rotation + "°";
+    document.getElementById("speeds").innerText = obj.speedL + " / " + obj.speedR + " mm/s";
+    document.getElementById("distance").innerText = obj.distance + " mm";
+
+    const states = ["IDLE", "CAL", "MAZE", "SOS"];
+    document.getElementById("state").innerText = states[obj.state] || "UNKNOWN";
+
+    return; // ✅ don’t process as binary
+  } catch (e) {
+    // Not JSON → fall back to binary
+  }
+
+  // 2. Binary packet (for logs)
+  const [ctrl, d1, d0, dec] = data;
+  logPacket("Received", ctrl, d1, d0, dec);
+}
 
     // ================== EXPORT LOGS ==================
     function exportLogs() {
@@ -226,3 +223,4 @@
   </script>
 </body>
 </html>
+
