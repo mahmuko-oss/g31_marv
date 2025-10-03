@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Group 31 MARV Control</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: linear-gradient(135deg, #ffdde1, #ee9ca7);
+      color: #4a0033;
+      text-align: center;
+      padding: 20px;
+    }
+    h1 { color: #b30059; }
+    button {
+      background: #ff4da6;
+      border: none;
+      padding: 10px 20px;
+      margin: 10px;
+      font-size: 16px;
+      border-radius: 12px;
+      cursor: pointer;
+      color: white;
+      transition: 0.3s;
+    }
+    button:hover { background: #e60073; }
+
+    .tab-container { margin-top: 20px; }
+    .tab-buttons { margin-bottom: 10px; }
+    .tab-buttons button { background: #ff99cc; }
+    .tab-content {
+      display: none;
+      border-radius: 12px;
+      background: #ffe6f0;
+      padding: 20px;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+    }
+    .active { display: block; }
+
+    .diag-item { margin: 10px 0; font-weight: bold; }
+    .sensor { font-size: 20px; margin: 0 5px; }
+    .W { color: gray; }
+    .R { color: red; }
+    .G { color: green; }
+    .B { color: blue; }
+    .K { color: black; }
+
+    #logBox {
+      text-align: left;
+      background: white;
+      padding: 10px;
+      border-radius: 8px;
+      height: 300px;
+      overflow-y: auto;
+      font-family: monospace;
+      font-size: 13px;
+      border: 1px solid #ccc;
+    }
+  </style>
+</head>
+<body>
+  <h1>Group 31 MARV Control</h1>
+  <button id="connectBtn">🔗 Connect via Bluetooth</button>
+  <button id="touchBtn">👉 Touch Button</button>
+
+  <!-- Tabs -->
+  <div class="tab-container">
+    <div class="tab-buttons">
+      <button onclick="openTab('displayTab')">📊 Display</button>
+      <button onclick="openTab('logsTab')">📝 Logs</button>
+    </div>
+
+    <!-- Display Tab -->
+    <div id="displayTab" class="tab-content active">
+      <h2>Critical Systems Display</h2>
+      <div class="diag-item">Sensor Colours: 
+        <span id="s1" class="sensor">-</span>
+        <span id="s2" class="sensor">-</span>
+        <span id="s3" class="sensor">-</span>
+      </div>
+      <div class="diag-item">System State: <span id="state">IDLE</span></div>
+      <div class="diag-item">Last Rotation: <span id="rotation">0°</span></div>
+      <div class="diag-item">Wheel Speeds: <span id="speeds">0 / 0 mm/s</span></div>
+      <div class="diag-item">Distance: <span id="distance">0 mm</span></div>
+      <div class="diag-item">Incidence Angle: <span id="angle">0°</span></div>
+    </div>
+
+    <!-- Logs Tab -->
+    <div id="logsTab" class="tab-content">
+      <h2>Raw Packet Logs</h2>
+      <div id="logBox"></div>
+      <button onclick="exportLogs()">⬇ Export Logs</button>
+    </div>
+  </div>
+
+  <script>
+    let device, server, service;
+    let txCharacteristic, rxCharacteristic;
+    let logs = [];
+
+    const colourMap = {
+      0b000: 'W', 0b001: 'R', 0b010: 'G',
+      0b011: 'B', 0b100: 'K'
+    };
+
+    const stateColours = {
+      "IDLE": "#f2f2f2",
+      "CAL": "#fff9cc",
+      "MAZE": "#ffe6f0",
+      "SOS": "#ff6666"
+    };
+
+    // Tab switching
+    function openTab(tabId) {
+      document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
+      document.getElementById(tabId).classList.add('active');
+    }
+
+    // ================== BLUETOOTH CONNECT ==================
+    document.getElementById("connectBtn").addEventListener("click", async () => {
+      try {
+        device = await navigator.bluetooth.requestDevice({
+          filters: [{ namePrefix: "MARV-ESP32" }], // optional filter by name
+          optionalServices: [
+            // 🔴 CHANGE THIS: put your SERVICE_UUID from ESP32 here
+            "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+          ]
+        });
+
+        server = await device.gatt.connect();
+        service = await server.getPrimaryService(
+          // 🔴 CHANGE THIS: same SERVICE_UUID as above
+          "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+        );
+
+        // TX (notify)
+        txCharacteristic = await service.getCharacteristic(
+          // 🔴 CHANGE THIS: CHARACTERISTIC_UUID_TX from ESP32
+          "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+        );
+        await txCharacteristic.startNotifications();
+        txCharacteristic.addEventListener("characteristicvaluechanged", handlePacket);
+
+        // RX (write)
+        rxCharacteristic = await service.getCharacteristic(
+          // 🔴 CHANGE THIS: CHARACTERISTIC_UUID_RX from ESP32
+          "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
+        );
+
+        alert("✅ Connected to ESP32 MARV");
+      } catch (err) {
+        console.error(err);
+        alert("❌ Connection failed: " + err);
+      }
+    });
+
+    // ================== TOUCH BUTTON ==================
+    document.getElementById("touchBtn").addEventListener("click", async () => {
+      if (rxCharacteristic) {
+        const data = new Uint8Array([0x01]); // Touch = 0x01
+        await rxCharacteristic.writeValue(data);
+        console.log("👉 Sent touch signal");
+      } else {
+        alert("Connect first!");
+      }
+    });
+
+    // ================== PACKET HANDLER ==================
+    function handlePacket(event) {
+      const data = new Uint8Array(event.target.value.buffer);
+
+      // 👇 Up to here: you are receiving raw bytes from ESP32
+      // Next step: parse data into SYS, SUB, IST, etc.
+      // For now, we just log the bytes:
+
+      const packetStr = Array.from(data).map(b => b.toString(16).padStart(2,"0")).join(" ");
+      logs.push(packetStr);
+      const logBox = document.getElementById("logBox");
+      logBox.innerText += packetStr + "\n";
+      logBox.scrollTop = logBox.scrollHeight;
+    }
+
+    // ================== EXPORT LOGS ==================
+    function exportLogs() {
+      const blob = new Blob([logs.join("\n")], { type: "text/plain" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "marv_logs.txt";
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    function updateSensor(id, code) {
+      const letter = colourMap[code] || "-";
+      const el = document.getElementById(id);
+      el.innerText = letter;
+      el.className = "sensor " + letter;
+    }
+  </script>
+</body>
+</html>
