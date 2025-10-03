@@ -175,33 +175,48 @@
 
     // ================== PACKET HANDLER ==================
     function handlePacket(event) {
-  const data = new Uint8Array(event.target.value.buffer);
-  const text = new TextDecoder().decode(data);
+      const value = new TextDecoder().decode(event.target.value);
+      try {
+        const data = JSON.parse(value);
+    
+        // Update display
+        updateSensor("s1", data.S1);
+        updateSensor("s2", data.S2);
+        updateSensor("s3", data.S3);
+    
+        document.getElementById("state").innerText =
+          ["IDLE", "CAL", "MAZE", "SOS"][data.state] || data.state;
+        document.getElementById("rotation").innerText = data.rotation + "°";
+        document.getElementById("speeds").innerText = data.speedL + " / " + data.speedR + " mm/s";
+        document.getElementById("distance").innerText = data.distance + " mm";
+        document.getElementById("angle").innerText = data.angle + "°";
+    
+        // 🔴 Show sub-states
+        console.log("green_sub:", data.green_sub,
+                    "red_sub:", data.red_sub,
+                    "black_stage:", data.black_stage,
+                    "blue_stage:", data.blue_stage);
+    
+        // You can also add them to the Display tab:
+        let extraDiag = `
+          Green Sub: ${data.green_sub} |
+          Red Sub: ${data.red_sub} |
+          Black Stage: ${data.black_stage} |
+          Blue Stage: ${data.blue_stage}
+        `;
+        document.getElementById("extraStates").innerText = extraDiag;
+    
+      } catch (e) {
+        // Not JSON → raw packet log
+        const bytes = new Uint8Array(event.target.value.buffer);
+        const packetStr = Array.from(bytes).map(b => b.toString(16).padStart(2,"0")).join(" ");
+        logs.push(packetStr);
+        const logBox = document.getElementById("logBox");
+        logBox.innerText += packetStr + "\n";
+        logBox.scrollTop = logBox.scrollHeight;
+      }
+    }
 
-  // 1. Try JSON decode
-  try {
-    const obj = JSON.parse(text);
-
-    updateSensor("s1", obj.S1);
-    updateSensor("s2", obj.S2);
-    updateSensor("s3", obj.S3);
-    document.getElementById("angle").innerText = obj.Angle + "°";
-    document.getElementById("rotation").innerText = obj.rotation + "°";
-    document.getElementById("speeds").innerText = obj.speedL + " / " + obj.speedR + " mm/s";
-    document.getElementById("distance").innerText = obj.distance + " mm";
-
-    const states = ["IDLE", "CAL", "MAZE", "SOS"];
-    document.getElementById("state").innerText = states[obj.state] || "UNKNOWN";
-
-    return; // ✅ don’t process as binary
-  } catch (e) {
-    // Not JSON → fall back to binary
-  }
-
-  // 2. Binary packet (for logs)
-  const [ctrl, d1, d0, dec] = data;
-  logPacket("Received", ctrl, d1, d0, dec);
-}
 
     // ================== EXPORT LOGS ==================
     function exportLogs() {
@@ -223,4 +238,5 @@
   </script>
 </body>
 </html>
+
 
