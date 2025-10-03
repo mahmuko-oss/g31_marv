@@ -55,6 +55,7 @@
       font-family: monospace;
       font-size: 13px;
       border: 1px solid #ccc;
+      white-space: pre;
     }
   </style>
 </head>
@@ -97,17 +98,11 @@
     let device, server, service;
     let txCharacteristic, rxCharacteristic;
     let logs = [];
+    let packetCount = 0;
 
     const colourMap = {
       0b000: 'W', 0b001: 'R', 0b010: 'G',
       0b011: 'B', 0b100: 'K'
-    };
-
-    const stateColours = {
-      "IDLE": "#f2f2f2",
-      "CAL": "#fff9cc",
-      "MAZE": "#ffe6f0",
-      "SOS": "#ff6666"
     };
 
     // Tab switching
@@ -120,32 +115,20 @@
     document.getElementById("connectBtn").addEventListener("click", async () => {
       try {
         device = await navigator.bluetooth.requestDevice({
-          filters: [{ namePrefix: "MARV-ESP32" }], // optional filter by name
-          optionalServices: [
-            // 🔴 CHANGE THIS: put your SERVICE_UUID from ESP32 here
-            "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
-          ]
+          filters: [{ namePrefix: "MARV-ESP32" }],
+          optionalServices: ["6e400001-b5a3-f393-e0a9-e50e24dcca9e"]
         });
 
         server = await device.gatt.connect();
-        service = await server.getPrimaryService(
-          // 🔴 CHANGE THIS: same SERVICE_UUID as above
-          "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
-        );
+        service = await server.getPrimaryService("6e400001-b5a3-f393-e0a9-e50e24dcca9e");
 
         // TX (notify)
-        txCharacteristic = await service.getCharacteristic(
-          // 🔴 CHANGE THIS: CHARACTERISTIC_UUID_TX from ESP32
-          "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
-        );
+        txCharacteristic = await service.getCharacteristic("6e400003-b5a3-f393-e0a9-e50e24dcca9e");
         await txCharacteristic.startNotifications();
         txCharacteristic.addEventListener("characteristicvaluechanged", handlePacket);
 
         // RX (write)
-        rxCharacteristic = await service.getCharacteristic(
-          // 🔴 CHANGE THIS: CHARACTERISTIC_UUID_RX from ESP32
-          "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
-        );
+        rxCharacteristic = await service.getCharacteristic("6e400002-b5a3-f393-e0a9-e50e24dcca9e");
 
         alert("✅ Connected to ESP32 MARV");
       } catch (err) {
@@ -159,25 +142,73 @@
       if (rxCharacteristic) {
         const data = new Uint8Array([0x01]); // Touch = 0x01
         await rxCharacteristic.writeValue(data);
-        console.log("👉 Sent touch signal");
+        logPacket("Sent", 146, 1, 0, 0);
       } else {
         alert("Connect first!");
       }
     });
 
+    // ================== LOGGING ==================
+    function logPacket(direction, ctrl, d1, d0, dec) {
+      const ts = new Date().toLocaleTimeString("en-GB");
+      packetCount++;
+
+      let msg = `${ts} || ${packetCount} || ${direction}: || (${ctrl}-${d1}-${d0}) || `;
+
+      switch (ctrl) {
+        case 161: msg += `MAZE | MDPS | Rotation=${(d1<<8|d0)}°`; break;
+        case 162: msg += `MAZE | SS   | Angle=${d1}°`; break;
+        case 163: msg += `MAZE | MDPS | Speeds L=${d0} R=${d1}`; break;
+        case 164: msg += `MAZE | MDPS | Dist=${(d1<<8|d0)} mm`; break;
+        case 177: {
+          const DATA = (d1<<8)|d0;
+          const s1 = (DATA >> 6) & 0b111;
+          const s2 = (DATA >> 3) & 0b111;
+          const s3 = (DATA >> 0) & 0b111;
+          msg += `MAZE | SNC | Sensors: ${colourMap[s1]}-${colourMap[s2]}-${colourMap[s3]}`;
+          break;
+        }
+        case 178: msg += `MAZE | SS | Incidence=${d1}°`; break;
+        default: msg += `RAW: ${ctrl} ${d1} ${d0} ${dec}`;
+      }
+
+      logs.push(msg);
+      const logBox = document.getElementById("logBox");
+      logBox.innerText += msg + "\n";
+      logBox.scrollTop = logBox.scrollHeight;
+    }
+
     // ================== PACKET HANDLER ==================
     function handlePacket(event) {
       const data = new Uint8Array(event.target.value.buffer);
+      const [ctrl, d1, d0, dec] = data;
 
-      // 👇 Up to here: you are receiving raw bytes from ESP32
-      // Next step: parse data into SYS, SUB, IST, etc.
-      // For now, we just log the bytes:
+      logPacket("Received", ctrl, d1, d0, dec);
 
-      const packetStr = Array.from(data).map(b => b.toString(16).padStart(2,"0")).join(" ");
-      logs.push(packetStr);
-      const logBox = document.getElementById("logBox");
-      logBox.innerText += packetStr + "\n";
-      logBox.scrollTop = logBox.scrollHeight;
+      // ===== Update Display =====
+      switch (ctrl) {
+        case 161:
+          document.getElementById("rotation").innerText = `${(d1<<8)|d0}°`;
+          break;
+        case 162:
+          document.getElementById("angle").innerText = `${d1}°`;
+          break;
+        case 163:
+          document.getElementById("speeds").innerText = `${d1} / ${d0} mm/s`;
+          break;
+        case 164:
+          document.getElementById("distance").innerText = `${(d1<<8)|d0} mm`;
+          break;
+        case 177:
+          const DATA = (d1<<8)|d0;
+          const s1 = (DATA >> 6) & 0b111;
+          const s2 = (DATA >> 3) & 0b111;
+          const s3 = (DATA >> 0) & 0b111;
+          updateSensor("s1", s1);
+          updateSensor("s2", s2);
+          updateSensor("s3", s3);
+          break;
+      }
     }
 
     // ================== EXPORT LOGS ==================
