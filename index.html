@@ -98,7 +98,7 @@
     let device, server, service;
     let txCharacteristic, rxCharacteristic;
     let logs = [];
-    let packetCount = 0;
+    let qsCounter = 0;
 
     const colourMap = {
       0b000: 'W', 0b001: 'R', 0b010: 'G',
@@ -150,27 +150,22 @@
 
     // ================== LOGGING ==================
     function logPacket(direction, ctrl, d1, d0, dec) {
-      const ts = new Date().toLocaleTimeString("en-GB");
-      packetCount++;
+      qsCounter++;
+      const ts = new Date().toLocaleString("en-GB", { hour12: false });
 
-      let msg = `${ts} || ${packetCount} || ${direction}: || (${ctrl}-${d1}-${d0}) || `;
+      // Control byte breakdown into (X-Y-Z)
+      const c1 = (ctrl >> 5) & 0x07;
+      const c2 = (ctrl >> 2) & 0x07;
+      const c3 = ctrl & 0x03;
+      const ctrlStr = `(${c1}-${c2}-${c3})`;
 
-      switch (ctrl) {
-        case 161: msg += `MAZE | MDPS | Rotation=${(d1<<8|d0)}°`; break;
-        case 162: msg += `MAZE | SS   | Angle=${d1}°`; break;
-        case 163: msg += `MAZE | MDPS | Speeds L=${d0} R=${d1}`; break;
-        case 164: msg += `MAZE | MDPS | Dist=${(d1<<8|d0)} mm`; break;
-        case 177: {
-          const DATA = (d1<<8)|d0;
-          const s1 = (DATA >> 6) & 0b111;
-          const s2 = (DATA >> 3) & 0b111;
-          const s3 = (DATA >> 0) & 0b111;
-          msg += `MAZE | SNC | Sensors: ${colourMap[s1]}-${colourMap[s2]}-${colourMap[s3]}`;
-          break;
-        }
-        case 178: msg += `MAZE | SS | Incidence=${d1}°`; break;
-        default: msg += `RAW: ${ctrl} ${d1} ${d0} ${dec}`;
-      }
+      // Decode state/subsystem
+      let state = "UNKNOWN", subsys = "?", ist = c3;
+      if (ctrl >= 161 && ctrl <= 164) { state = "MAZE"; subsys = "MDPS"; }
+      if (ctrl === 177 || ctrl === 178) { state = "MAZE"; subsys = "SS"; }
+      if (ctrl === 145 || ctrl === 146) { state = "MAZE"; subsys = "SNC"; }
+
+      const msg = `${ts} || ${qsCounter} || ${direction}: || ${ctrlStr} || ${state} | ${subsys} | ${ist} || ${d1} | ${d0} | ${dec} || ${ctrl}`;
 
       logs.push(msg);
       const logBox = document.getElementById("logBox");
