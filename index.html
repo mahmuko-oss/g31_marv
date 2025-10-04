@@ -84,6 +84,12 @@
       <div class="diag-item">Wheel Speeds: <span id="speeds">0 / 0 mm/s</span></div>
       <div class="diag-item">Distance: <span id="distance">0 mm</span></div>
       <div class="diag-item">Incidence Angle: <span id="angle">0°</span></div>
+
+      <!-- 🔴 Sub-states section -->
+      <div class="diag-item">Green Sub: <span id="greenSub">-</span></div>
+      <div class="diag-item">Red Sub: <span id="redSub">-</span></div>
+      <div class="diag-item">Black Stage: <span id="blackStage">-</span></div>
+      <div class="diag-item">Blue Stage: <span id="blueStage">-</span></div>
     </div>
 
     <!-- Logs Tab -->
@@ -192,19 +198,10 @@
         document.getElementById("angle").innerText = data.angle + "°";
     
         // 🔴 Show sub-states
-        console.log("green_sub:", data.green_sub,
-                    "red_sub:", data.red_sub,
-                    "black_stage:", data.black_stage,
-                    "blue_stage:", data.blue_stage);
-    
-        // You can also add them to the Display tab:
-        let extraDiag = `
-          Green Sub: ${data.green_sub} |
-          Red Sub: ${data.red_sub} |
-          Black Stage: ${data.black_stage} |
-          Blue Stage: ${data.blue_stage}
-        `;
-        document.getElementById("extraStates").innerText = extraDiag;
+        document.getElementById("greenSub").innerText = data.green_sub;
+        document.getElementById("redSub").innerText   = data.red_sub;
+        document.getElementById("blackStage").innerText = data.black_stage;
+        document.getElementById("blueStage").innerText  = data.blue_stage;
     
       } catch (e) {
         // Not JSON → raw packet log
@@ -216,7 +213,6 @@
         logBox.scrollTop = logBox.scrollHeight;
       }
     }
-
 
     // ================== EXPORT LOGS ==================
     function exportLogs() {
@@ -238,6 +234,3 @@
   </script>
 </body>
 </html>
-
-
-
