@@ -12,6 +12,7 @@
       padding: 20px;
     }
     h1 { color: #b30059; }
+
     button {
       background: #ff4da6;
       border: none;
@@ -28,6 +29,7 @@
     .tab-container { margin-top: 20px; }
     .tab-buttons { margin-bottom: 10px; }
     .tab-buttons button { background: #ff99cc; }
+
     .tab-content {
       display: none;
       border-radius: 12px;
@@ -58,11 +60,16 @@
       white-space: pre;
     }
 
-    #exportControls {
-      margin-top: 10px;
-    }
-    #exportControls input {
-      margin: 0 5px;
+    #exportControls { margin-top: 10px; }
+    #exportControls input { margin: 0 5px; }
+
+    #toneCanvas {
+      background: white;
+      border: 1px solid #aaa;
+      border-radius: 8px;
+      width: 90%;
+      height: 200px;
+      margin-top: 15px;
     }
   </style>
 </head>
@@ -78,7 +85,7 @@
       <button onclick="openTab('logsTab')">📝 Logs</button>
     </div>
 
-    <!-- Display Tab -->
+    <!-- DISPLAY TAB -->
     <div id="displayTab" class="tab-content active">
       <h2>Critical Systems Display</h2>
       <div class="diag-item">Sensor Colours: 
@@ -92,12 +99,15 @@
       <div class="diag-item">Distance: <span id="distance">0 mm</span></div>
       <div class="diag-item">Incidence Angle: <span id="angle">0°</span></div>
 
+      <!-- Live tone diagnostics -->
       <div class="diag-item">Tone Voltage: <span id="micVolt">0.00 V</span></div>
-      <div class="diag-item">Pure Tone Status: <span id="toneStatus">❌ Not Detected</span></div>
+      <div class="diag-item">Pure Tone Status: <span id="toneStatus" style="color:red">❌ Not Detected</span></div>
 
+      <!-- Oscilloscope-style live plot -->
+      <canvas id="toneCanvas"></canvas>
     </div>
 
-    <!-- Logs Tab -->
+    <!-- LOGS TAB -->
     <div id="logsTab" class="tab-content">
       <h2>Raw Packet Logs</h2>
       <div id="logBox"></div>
@@ -113,39 +123,30 @@
   <script>
     let device, server, service;
     let txCharacteristic, rxCharacteristic;
-    let logs = []; // store full log objects
+    let logs = [];
     let qsCounter = 0;
 
-    const colourMap = {
-      0b000: 'W', 0b001: 'R', 0b010: 'G',
-      0b011: 'B', 0b100: 'K'
-    };
+    const colourMap = {0:'W',1:'R',2:'G',3:'B',4:'K'};
 
     // Tab switching
     function openTab(tabId) {
-      document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
       document.getElementById(tabId).classList.add('active');
     }
 
-    // ================== BLUETOOTH CONNECT ==================
+    // Bluetooth connect
     document.getElementById("connectBtn").addEventListener("click", async () => {
       try {
         device = await navigator.bluetooth.requestDevice({
           filters: [{ namePrefix: "MARV-ESP32" }],
           optionalServices: ["6e400001-b5a3-f393-e0a9-e50e24dcca9e"]
         });
-
         server = await device.gatt.connect();
         service = await server.getPrimaryService("6e400001-b5a3-f393-e0a9-e50e24dcca9e");
-
-        // TX (notify)
         txCharacteristic = await service.getCharacteristic("6e400003-b5a3-f393-e0a9-e50e24dcca9e");
+        rxCharacteristic = await service.getCharacteristic("6e400002-b5a3-f393-e0a9-e50e24dcca9e");
         await txCharacteristic.startNotifications();
         txCharacteristic.addEventListener("characteristicvaluechanged", handlePacket);
-
-        // RX (write)
-        rxCharacteristic = await service.getCharacteristic("6e400002-b5a3-f393-e0a9-e50e24dcca9e");
-
         alert("✅ Connected to ESP32 MARV");
       } catch (err) {
         console.error(err);
@@ -153,110 +154,128 @@
       }
     });
 
-    // ================== TOUCH BUTTON ==================
+    // Touch button
     document.getElementById("touchBtn").addEventListener("click", async () => {
       if (rxCharacteristic) {
-        const data = new Uint8Array([0x01]); // Touch = 0x01
+        const data = new Uint8Array([0x01]);
         await rxCharacteristic.writeValue(data);
         addLog("Touch command sent");
-      } else {
-        alert("Connect first!");
-      }
+      } else alert("Connect first!");
     });
 
-    // ================== FORMATTED LOGGING ==================
-    function addLog(displayData) {
+    // Log helper
+    function addLog(text) {
       qsCounter++;
-      const ts = new Date();
-      const tsStr = ts.toLocaleString("en-GB", { hour12: false });
-      const msg =
-`=======================
-#${qsCounter} | ${tsStr}
-${displayData}
-=======================`;
-
-      logs.push({ time: ts, text: msg });
-
-      // Render all logs
+      const ts = new Date().toLocaleString("en-GB", {hour12:false});
+      const entry = `#${qsCounter} | ${ts}\n${text}\n`;
+      logs.push({time: new Date(), text: entry});
       const logBox = document.getElementById("logBox");
-      logBox.innerText = logs.map(l => l.text).join("\n\n");
-
-      // Always scroll to bottom
+      logBox.innerText = logs.map(l => l.text).join("\n");
       logBox.scrollTop = logBox.scrollHeight;
     }
 
-    // ================== PACKET HANDLER ==================
+    // Voltage graph setup
+    const canvas = document.getElementById("toneCanvas");
+    const ctx = canvas.getContext("2d");
+    let toneData = [];
+    const maxPoints = 100; // 100 samples on screen
+
+    function drawGraph() {
+      const w = canvas.width = canvas.clientWidth;
+      const h = canvas.height = canvas.clientHeight;
+      ctx.clearRect(0,0,w,h);
+
+      // Axis
+      ctx.strokeStyle = "#ddd";
+      ctx.beginPath();
+      ctx.moveTo(0, h/2);
+      ctx.lineTo(w, h/2);
+      ctx.stroke();
+
+      if (toneData.length < 2) return;
+
+      ctx.strokeStyle = "#b30059";
+      ctx.beginPath();
+      for (let i=0; i<toneData.length; i++) {
+        const x = (i / (maxPoints-1)) * w;
+        const y = h - (toneData[i] / 3.3) * h; // scale 0–3.3V
+        if (i===0) ctx.moveTo(x,y);
+        else ctx.lineTo(x,y);
+      }
+      ctx.stroke();
+
+      requestAnimationFrame(drawGraph);
+    }
+    drawGraph();
+
+    // BLE handler
     function handlePacket(event) {
       const value = new TextDecoder().decode(event.target.value);
       try {
         const data = JSON.parse(value);
-    
-        // Update display
-        updateSensor("s1", data.S1);
-        updateSensor("s2", data.S2);
-        updateSensor("s3", data.S3);
-    
-        document.getElementById("state").innerText =
-          ["IDLE", "CAL", "MAZE", "SOS"][data.state] || data.state;
-        document.getElementById("rotation").innerText = data.rotation + "°";
-        document.getElementById("speeds").innerText = data.speedL + " / " + data.speedR + " mm/s";
-        document.getElementById("distance").innerText = data.distance + " mm";
-        document.getElementById("angle").innerText = data.angle + "°";
+
+        // 🔸 Tone updates
         if (data.mic_volt !== undefined) {
-  document.getElementById("micVolt").innerText = data.mic_volt.toFixed(2) + " V";
-}
-if (data.pure_detected !== undefined) {
-  document.getElementById("toneStatus").innerText =
-    data.pure_detected ? "✅ Detected" : "❌ Not Detected";
-  document.getElementById("toneStatus").style.color =
-    data.pure_detected ? "green" : "red";
-}
+          document.getElementById("micVolt").innerText = data.mic_volt.toFixed(2) + " V";
+          toneData.push(data.mic_volt);
+          if (toneData.length > maxPoints) toneData.shift();
+        }
+        if (data.pure_detected !== undefined) {
+          const toneEl = document.getElementById("toneStatus");
+          toneEl.innerText = data.pure_detected ? "✅ Detected" : "❌ Not Detected";
+          toneEl.style.color = data.pure_detected ? "green" : "red";
+        }
 
-    
-        // Create pretty log entry of what's shown
-        const logData = `
-Sensors: ${document.getElementById("s1").innerText} | ${document.getElementById("s2").innerText} | ${document.getElementById("s3").innerText}
-State:   ${document.getElementById("state").innerText}
-Rotation:${document.getElementById("rotation").innerText}
-Speeds:  ${document.getElementById("speeds").innerText}
-Distance:${document.getElementById("distance").innerText}
-Angle:   ${document.getElementById("angle").innerText}`;
-        
-        addLog(logData);
+        // 🔸 Full diagnostic packets
+        if (data.S1 !== undefined) {
+          updateSensor("s1", data.S1);
+          updateSensor("s2", data.S2);
+          updateSensor("s3", data.S3);
+          document.getElementById("state").innerText = ["IDLE","CAL","MAZE","SOS"][data.state] || data.state;
+          document.getElementById("rotation").innerText = data.rotation + "°";
+          document.getElementById("speeds").innerText = data.speedL + " / " + data.speedR + " mm/s";
+          document.getElementById("distance").innerText = data.distance + " mm";
+          document.getElementById("angle").innerText = data.angle + "°";
 
+          addLog(`Sensors: ${document.getElementById("s1").innerText} | ${document.getElementById("s2").innerText} | ${document.getElementById("s3").innerText}
+State: ${document.getElementById("state").innerText}
+Rotation: ${data.rotation}°
+Speeds: ${data.speedL} / ${data.speedR}
+Distance: ${data.distance}
+Angle: ${data.angle}
+Voltage: ${document.getElementById("micVolt").innerText}
+Tone: ${document.getElementById("toneStatus").innerText}`);
+        }
       } catch (e) {
-        console.warn("Non-JSON packet ignored");
+        console.warn("Non-JSON packet ignored:", value);
       }
     }
 
-    // ================== EXPORT LOGS ==================
+    // Export logs
     function exportLogs() {
       const fromDateStr = document.getElementById("fromDate").value;
       const toDateStr = document.getElementById("toDate").value;
-
-      let filteredLogs = logs;
+      let filtered = logs;
       if (fromDateStr) {
-        const fromDate = new Date(fromDateStr);
-        filteredLogs = filteredLogs.filter(l => l.time >= fromDate);
+        const from = new Date(fromDateStr);
+        filtered = filtered.filter(l => l.time >= from);
       }
       if (toDateStr) {
-        const toDate = new Date(toDateStr);
-        toDate.setHours(23,59,59,999);
-        filteredLogs = filteredLogs.filter(l => l.time <= toDate);
+        const to = new Date(toDateStr);
+        to.setHours(23,59,59,999);
+        filtered = filtered.filter(l => l.time <= to);
       }
-
-      const blob = new Blob([filteredLogs.map(l => l.text).join("\n\n")], { type: "text/plain" });
-      const url = URL.createObjectURL(blob);
+      const blob = new Blob([filtered.map(l=>l.text).join("\n")], {type:"text/plain"});
       const a = document.createElement("a");
-      a.href = url;
+      a.href = URL.createObjectURL(blob);
       a.download = "marv_logs.txt";
       a.click();
-      URL.revokeObjectURL(url);
+      URL.revokeObjectURL(a.href);
     }
 
-    // ================== CLEAR LOGS ==================
+    // Clear logs
     function clearLogs() {
-      if (confirm("⚠️ Are you sure you want to clear ALL logs? This cannot be undone.")) {
+      if (confirm("⚠️ Clear ALL logs?")) {
         logs = [];
         qsCounter = 0;
         document.getElementById("logBox").innerText = "";
@@ -272,4 +291,3 @@ Angle:   ${document.getElementById("angle").innerText}`;
   </script>
 </body>
 </html>
-
