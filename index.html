@@ -57,6 +57,13 @@
       border: 1px solid #ccc;
       white-space: pre;
     }
+
+    #exportControls {
+      margin-top: 10px;
+    }
+    #exportControls input {
+      margin: 0 5px;
+    }
   </style>
 </head>
 <body>
@@ -84,26 +91,24 @@
       <div class="diag-item">Wheel Speeds: <span id="speeds">0 / 0 mm/s</span></div>
       <div class="diag-item">Distance: <span id="distance">0 mm</span></div>
       <div class="diag-item">Incidence Angle: <span id="angle">0°</span></div>
-
-      <!-- 🔴 Sub-states section -->
-      <div class="diag-item">Green Sub: <span id="greenSub">-</span></div>
-      <div class="diag-item">Red Sub: <span id="redSub">-</span></div>
-      <div class="diag-item">Black Stage: <span id="blackStage">-</span></div>
-      <div class="diag-item">Blue Stage: <span id="blueStage">-</span></div>
     </div>
 
     <!-- Logs Tab -->
     <div id="logsTab" class="tab-content">
       <h2>Raw Packet Logs</h2>
       <div id="logBox"></div>
-      <button onclick="exportLogs()">⬇ Export Logs</button>
+      <div id="exportControls">
+        <label>From: <input type="date" id="fromDate"></label>
+        <label>To: <input type="date" id="toDate"></label>
+        <button onclick="exportLogs()">⬇ Export Logs</button>
+      </div>
     </div>
   </div>
 
   <script>
     let device, server, service;
     let txCharacteristic, rxCharacteristic;
-    let logs = [];
+    let logs = []; // store full log objects
     let qsCounter = 0;
 
     const colourMap = {
@@ -136,6 +141,11 @@
         // RX (write)
         rxCharacteristic = await service.getCharacteristic("6e400002-b5a3-f393-e0a9-e50e24dcca9e");
 
+        // ✅ Reset logs when new device connects
+        logs = [];
+        qsCounter = 0;
+        document.getElementById("logBox").innerText = "";
+
         alert("✅ Connected to ESP32 MARV");
       } catch (err) {
         console.error(err);
@@ -148,34 +158,30 @@
       if (rxCharacteristic) {
         const data = new Uint8Array([0x01]); // Touch = 0x01
         await rxCharacteristic.writeValue(data);
-        logPacket("Sent", 146, 1, 0, 0);
+        addLog("Touch command sent");
       } else {
         alert("Connect first!");
       }
     });
 
-    // ================== LOGGING ==================
-    function logPacket(direction, ctrl, d1, d0, dec) {
+    // ================== FORMATTED LOGGING ==================
+    function addLog(displayData) {
       qsCounter++;
-      const ts = new Date().toLocaleString("en-GB", { hour12: false });
+      const ts = new Date();
+      const tsStr = ts.toLocaleString("en-GB", { hour12: false });
+      const msg =
+`=======================
+#${qsCounter} | ${tsStr}
+${displayData}
+=======================`;
 
-      // Control byte breakdown into (X-Y-Z)
-      const c1 = (ctrl >> 5) & 0x07;
-      const c2 = (ctrl >> 2) & 0x07;
-      const c3 = ctrl & 0x03;
-      const ctrlStr = `(${c1}-${c2}-${c3})`;
+      logs.push({ time: ts, text: msg });
 
-      // Decode state/subsystem
-      let state = "UNKNOWN", subsys = "?", ist = c3;
-      if (ctrl >= 161 && ctrl <= 164) { state = "MAZE"; subsys = "MDPS"; }
-      if (ctrl === 177 || ctrl === 178) { state = "MAZE"; subsys = "SS"; }
-      if (ctrl === 145 || ctrl === 146) { state = "MAZE"; subsys = "SNC"; }
-
-      const msg = `${ts} || ${qsCounter} || ${direction}: || ${ctrlStr} || ${state} | ${subsys} | ${ist} || ${d1} | ${d0} | ${dec} || ${ctrl}`;
-
-      logs.push(msg);
+      // Render all logs
       const logBox = document.getElementById("logBox");
-      logBox.innerText += msg + "\n";
+      logBox.innerText = logs.map(l => l.text).join("\n\n");
+
+      // Always scroll to bottom
       logBox.scrollTop = logBox.scrollHeight;
     }
 
@@ -197,26 +203,39 @@
         document.getElementById("distance").innerText = data.distance + " mm";
         document.getElementById("angle").innerText = data.angle + "°";
     
-        // 🔴 Show sub-states
-        document.getElementById("greenSub").innerText = data.green_sub;
-        document.getElementById("redSub").innerText   = data.red_sub;
-        document.getElementById("blackStage").innerText = data.black_stage;
-        document.getElementById("blueStage").innerText  = data.blue_stage;
-    
+        // Create pretty log entry of what's shown
+        const logData = `
+Sensors: ${document.getElementById("s1").innerText} | ${document.getElementById("s2").innerText} | ${document.getElementById("s3").innerText}
+State:   ${document.getElementById("state").innerText}
+Rotation:${document.getElementById("rotation").innerText}
+Speeds:  ${document.getElementById("speeds").innerText}
+Distance:${document.getElementById("distance").innerText}
+Angle:   ${document.getElementById("angle").innerText}`;
+        
+        addLog(logData);
+
       } catch (e) {
-        // Not JSON → raw packet log
-        const bytes = new Uint8Array(event.target.value.buffer);
-        const packetStr = Array.from(bytes).map(b => b.toString(16).padStart(2,"0")).join(" ");
-        logs.push(packetStr);
-        const logBox = document.getElementById("logBox");
-        logBox.innerText += packetStr + "\n";
-        logBox.scrollTop = logBox.scrollHeight;
+        console.warn("Non-JSON packet ignored");
       }
     }
 
     // ================== EXPORT LOGS ==================
     function exportLogs() {
-      const blob = new Blob([logs.join("\n")], { type: "text/plain" });
+      const fromDateStr = document.getElementById("fromDate").value;
+      const toDateStr = document.getElementById("toDate").value;
+
+      let filteredLogs = logs;
+      if (fromDateStr) {
+        const fromDate = new Date(fromDateStr);
+        filteredLogs = filteredLogs.filter(l => l.time >= fromDate);
+      }
+      if (toDateStr) {
+        const toDate = new Date(toDateStr);
+        toDate.setHours(23,59,59,999);
+        filteredLogs = filteredLogs.filter(l => l.time <= toDate);
+      }
+
+      const blob = new Blob([filteredLogs.map(l => l.text).join("\n\n")], { type: "text/plain" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
