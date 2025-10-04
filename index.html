@@ -102,6 +102,13 @@
       <!-- Live tone diagnostics -->
       <div class="diag-item">Tone Voltage: <span id="micVolt">0.00 V</span></div>
       <div class="diag-item">Pure Tone Status: <span id="toneStatus" style="color:red">❌ Not Detected</span></div>
+      <hr style="margin:15px 0;">
+<h3>Pure Tone Debug Info</h3>
+<div class="diag-item">Tone ON flag: <span id="toneOn">0</span></div>
+<div class="diag-item">Detected flag: <span id="toneDetected">0</span></div>
+<div class="diag-item">Tone Duration: <span id="toneDuration">0 ms</span></div>
+<div class="diag-item">Last Change: <span id="lastChange">0 ms</span></div>
+<div class="diag-item">FSM State: <span id="fsmState">0</span></div>
 
       <!-- Oscilloscope-style live plot -->
       <canvas id="toneCanvas"></canvas>
@@ -220,6 +227,18 @@
           toneData.push(data.mic_volt);
           if (toneData.length > maxPoints) toneData.shift();
         }
+        // ----- Extended Debug Info -----
+if (data.tone_on !== undefined)
+  document.getElementById("toneOn").innerText = data.tone_on;
+if (data.pure_detected !== undefined)
+  document.getElementById("toneDetected").innerText = data.pure_detected;
+if (data.tone_duration !== undefined)
+  document.getElementById("toneDuration").innerText = data.tone_duration + " ms";
+if (data.last_change !== undefined)
+  document.getElementById("lastChange").innerText = data.last_change + " ms ago";
+if (data.current_state !== undefined)
+  document.getElementById("fsmState").innerText = data.current_state;
+
         if (data.pure_detected !== undefined) {
           const toneEl = document.getElementById("toneStatus");
           toneEl.innerText = data.pure_detected ? "✅ Detected" : "❌ Not Detected";
@@ -291,3 +310,4 @@ Tone: ${document.getElementById("toneStatus").innerText}`);
   </script>
 </body>
 </html>
+
