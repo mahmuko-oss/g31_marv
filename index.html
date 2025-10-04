@@ -91,6 +91,10 @@
       <div class="diag-item">Wheel Speeds: <span id="speeds">0 / 0 mm/s</span></div>
       <div class="diag-item">Distance: <span id="distance">0 mm</span></div>
       <div class="diag-item">Incidence Angle: <span id="angle">0°</span></div>
+
+      <div class="diag-item">Tone Voltage: <span id="micVolt">0.00 V</span></div>
+      <div class="diag-item">Pure Tone Status: <span id="toneStatus">❌ Not Detected</span></div>
+
     </div>
 
     <!-- Logs Tab -->
@@ -198,6 +202,16 @@ ${displayData}
         document.getElementById("speeds").innerText = data.speedL + " / " + data.speedR + " mm/s";
         document.getElementById("distance").innerText = data.distance + " mm";
         document.getElementById("angle").innerText = data.angle + "°";
+        if (data.mic_volt !== undefined) {
+  document.getElementById("micVolt").innerText = data.mic_volt.toFixed(2) + " V";
+}
+if (data.pure_detected !== undefined) {
+  document.getElementById("toneStatus").innerText =
+    data.pure_detected ? "✅ Detected" : "❌ Not Detected";
+  document.getElementById("toneStatus").style.color =
+    data.pure_detected ? "green" : "red";
+}
+
     
         // Create pretty log entry of what's shown
         const logData = `
@@ -258,3 +272,4 @@ Angle:   ${document.getElementById("angle").innerText}`;
   </script>
 </body>
 </html>
+
