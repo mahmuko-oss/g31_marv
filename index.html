@@ -101,6 +101,7 @@
         <label>From: <input type="date" id="fromDate"></label>
         <label>To: <input type="date" id="toDate"></label>
         <button onclick="exportLogs()">⬇ Export Logs</button>
+        <button onclick="clearLogs()">🗑 Clear Logs</button>
       </div>
     </div>
   </div>
@@ -140,11 +141,6 @@
 
         // RX (write)
         rxCharacteristic = await service.getCharacteristic("6e400002-b5a3-f393-e0a9-e50e24dcca9e");
-
-        // ✅ Reset logs when new device connects
-        logs = [];
-        qsCounter = 0;
-        document.getElementById("logBox").innerText = "";
 
         alert("✅ Connected to ESP32 MARV");
       } catch (err) {
@@ -242,6 +238,15 @@ Angle:   ${document.getElementById("angle").innerText}`;
       a.download = "marv_logs.txt";
       a.click();
       URL.revokeObjectURL(url);
+    }
+
+    // ================== CLEAR LOGS ==================
+    function clearLogs() {
+      if (confirm("⚠️ Are you sure you want to clear ALL logs? This cannot be undone.")) {
+        logs = [];
+        qsCounter = 0;
+        document.getElementById("logBox").innerText = "";
+      }
     }
 
     function updateSensor(id, code) {
