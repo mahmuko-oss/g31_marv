@@ -239,11 +239,17 @@ if (data.last_change !== undefined)
 if (data.current_state !== undefined)
   document.getElementById("fsmState").innerText = data.current_state;
 
-        if (data.pure_detected !== undefined) {
-          const toneEl = document.getElementById("toneStatus");
-          toneEl.innerText = data.pure_detected ? "✅ Detected" : "❌ Not Detected";
-          toneEl.style.color = data.pure_detected ? "green" : "red";
-        }
+        // ----- Extended Debug Info -----
+if (data.tone_on !== undefined)
+  document.getElementById("toneOn").innerText = data.tone_on;
+if (data.pure_detected !== undefined)
+  document.getElementById("toneDetected").innerText = data.pure_detected;
+if (data.tone_duration !== undefined)
+  document.getElementById("toneDuration").innerText = data.tone_duration + " ms";
+if (data.tone_gap !== undefined)
+  document.getElementById("lastChange").innerText = data.tone_gap + " ms gap";
+if (data.current_state !== undefined)
+  document.getElementById("fsmState").innerText = data.current_state;
 
         // 🔸 Full diagnostic packets
         if (data.S1 !== undefined) {
@@ -310,4 +316,5 @@ Tone: ${document.getElementById("toneStatus").innerText}`);
   </script>
 </body>
 </html>
+
 
